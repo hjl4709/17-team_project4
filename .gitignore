@@ -1,0 +1,7 @@
+*.pt
+123/
+garbage_classification/
+results/
+*.csv
+*.json
+*.npy
