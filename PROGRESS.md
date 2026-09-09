@@ -435,3 +435,64 @@
   - 검정 5의 혼입을 "발견만 하고 사용자에게 물어보기"보다 바로 고친 이유: 사용자가 이미 "갱신하고 돌려줘"라고 명확히 지시했고, 고치지 않으면 결과가 조용히 틀린 채로 팀 공유 산출물에 들어가는 위험이 있어 되돌리기 쉬운 범위 내에서 즉시 수정 후 그 사실을 투명하게 기록하는 쪽을 택함(원본 데이터는 백업돼 있어 검증/롤백 가능).
   - `3_notes.md`를 다시 쓰지 않고 기존 구조를 유지한 채 취소선/추가 문단으로 갱신한 이유: 이 문서 자체가 "버전별 시행착오" 기록이라, 과거 시점 서술을 지우면 그 시점의 판단 과정이 사라짐 — 대신 최신 상태로 갱신됐음을 명시하는 짧은 포인터를 덧붙이는 기존 관례(11절/11-1절에서 이미 쓴 방식)를 그대로 적용.
 - 다음 단계: 팀원에게 공유할 체크포인트는 `unfreeze_lr_1e-04_img224_v3.pt`(v5, 최종 채택 모델, 81.7MB) — 사용자에게 안내함. `label_error_detection_method.md`의 59건/87건 불일치는 여전히 미해결.
+
+---
+
+## 2026-09-08
+
+- 작업: 사용자 질문("white-glass/plastic 혼동이 사람도 육안으로 구분하기 힘든 재질 차이(무게·반사율 등) 때문 아니냐, 이런 걸 잡아낼 방법이 있냐")에 답하면서, 실제로 최종모델이 `plastic↔white-glass` 오분류에서 어디를 근거로 판단하는지 Grad-CAM으로 확인.
+- 변경사항:
+  - `results/material_confusion/`(신규): `gradcam_plastic_glass.py`(재현 코드), `gradcam_plastic_glass.png`(결과 이미지), `conclusion.md`(분석 결론).
+  - `preds_test.csv`(v5 최종모델)와 `split_hj.csv`를 대조해 test셋의 `plastic↔white-glass` 오분류 전수(9건)를 찾고, 확신도 상위 6건(양방향 3장씩)에 Grad-CAM 적용. Grad-CAM 구현은 `3.ipynb` 셀 36/53과 동일한 코드(재학습 없이 최종모델 `unfreeze_lr_1e-04_img224_v3.pt`에서 그대로 추출)를 그대로 재사용.
+  - **핵심 결과**: 6장 전부 히트맵이 재질 특유 부위가 아니라 "투명한 용기의 몸통 실루엣" 전체에 넓게 반응 — true label(white-glass/plastic)과 무관하게 패턴이 거의 동일함. `results/REPORT.md`(작업 2, 해상도 실험)에서 plastic/metal은 224px로 개선됐지만 white-glass만 유일하게 하락(−0.009)했던 기존 결과와 일치 — plastic/metal의 어려움은 해상도(질감)로 풀리는 문제였지만 white-glass 혼동은 성격이 다른 문제임을 재확인.
+  - `duplicate_detection_method.md`(신규, 별도 작업): 발표자료 슬라이드 용어(완전 동일=MD5, dHash 후보, 픽셀 검증)를 `2.ipynb`/`2_notes.md` 원본 근거로 정리한 설명 문서.
+- 결정 근거:
+  - 새로 재현 실험을 설계하는 대신 기존 Grad-CAM 구현(`3.ipynb`)을 그대로 재사용한 이유: 프로젝트 관례상 이미 검증된 코드를 그대로 쓰는 게 새 기법을 조용히 섞는 것보다 안전하고(외과적 수정 원칙), 재학습 없이 최종모델에서 바로 근거를 뽑을 수 있어 효율적.
+  - 결론을 "정제/모델 구조로 해결 안 되는 RGB 입력 자체의 한계"로 정리하고 NIR/편광 이미징 같은 대안은 "이 데이터셋으로는 불가능"이라고 명시한 이유: 실제로 존재하는 산업계 해법을 언급하되, 지금 가진 RGB jpg 데이터로는 얻을 수 없는 정보라는 것을 과장 없이 정직하게 구분하기 위함.
+- 다음 단계: `glass_hsv_samples.csv`(유리 이미지 채도/명도/색비율, 기존에 만들어졌으나 분석·결론이 문서화되지 않음)로 색상만으로 유리 3종이 얼마나 분리되는지 확인하는 것을 후속 작업으로 제안함(사용자 확인 대기).
+
+---
+
+## 2026-09-09
+
+- 작업: 사용자 제안("white-glass/plastic에만 빛반사 관련 증강을 적용해서 결과를 한 번 더 뽑아보면 어떨까")에 따라, `results/material_confusion/conclusion.md`의 결론(반사 부위가 아니라 정보 부족 문제)과 반대 방향인 이 가설을 val 기준으로 실제 실험해 검증.
+- 변경사항:
+  - `results/glass_plastic_augment/`(신규): `compare_augment.py`(재현 코드), `run.log`, `compare_results.json`, `conclusion.md`, 체크포인트 3개(`baseline.pt`/`variant_A_brightness_contrast.pt`/`variant_B_random_erasing.pt`).
+  - white-glass/plastic 두 클래스에만 증강을 다르게 적용하는 `PerClassAugmentDataset`을 새로 작성(나머지 10개 클래스는 기존 증강 유지). freeze 모델·3epoch(`3.ipynb` 셀 16 전처리 ablation과 동일한 짧은 신호 확인 관례)로 baseline(변경없음) vs variant_A(대상 클래스만 `ColorJitter(brightness=0.5, contrast=0.5)`로 강화) vs variant_B(대상 클래스만 baseline 증강 + `RandomErasing`으로 흰색 반사 패치 시뮬레이션) 3가지를 val로 비교(test 미사용).
+  - **핵심 결과**: 목표했던 white-glass↔plastic 상호 혼동 건수가 줄지 않음(baseline 21건 → variant_A 23건 → variant_B 21건). 오히려 두 variant 모두 white-glass recall이 뚜렷이 하락(0.8348 → 0.7478/0.7565, −0.078~−0.087) — 전체 val_macro_f1은 거의 그대로였는데(baseline 0.8549, A 0.8489, B 0.8561) white-glass 개별 recall만 크게 나빠짐.
+- 결정 근거:
+  - `RandomErasing`은 01~07.ipynb에 없는 기법이라 `# [NEW]` 표시(코드 상단 주석)와 사유(반사 하이라이트를 흰색 패치로 시뮬레이션해보기 위해 이번 실험 1회용으로만 사용)를 남김.
+  - freeze 모델·3epoch 프록시로 비교한 이유: 노트북 관례(`3.ipynb` 셀 16)와 동일하며, 이 방식의 신뢰성은 `results/preprocessing_grid/conclusion.md`("3epoch 프록시 순위가 완전학습 순위와 일치")에서 이미 확인된 바 있어 재사용함. 결과가 명확히 부정적이라 완전학습(unfreeze, 224px)까지 재확인하지는 않음.
+  - white-glass recall 하락(−0.078~−0.087)은 시드 노이즈 기준선(±0.0046, `results/seed_repeat`)보다 훨씬 크고 두 variant에서 같은 방향으로 반복돼 우연으로 보지 않음 — 반면 전체 val_macro_f1 차이(±0.006 수준)는 설정당 1회 실행(시드 반복 없음)이라 노이즈 가능성을 배제하지 못한다고 정직하게 기록함.
+  - 해석: Grad-CAM(반사 부위가 아니라 실루엣 전체에 반응) + 해상도 실험(224px로 디테일을 더 줘도 white-glass만 하락)에 이어, 이번 증강 실험도 같은 방향 — white-glass는 이미지 안의 유효 정보(색·질감) 자체가 부족해, 증강을 강하게 걸수록 남은 약한 신호가 더 희석되는 것으로 해석. 세 번째 독립 근거로 "이 혼동은 augmentation/모델 구조로 해결되는 문제가 아니다"라는 기존 결론을 재확인.
+- 다음 단계: white-glass/plastic 전용 빛반사 증강은 채택하지 않기로 결정 — 이 방향의 추가 튜닝은 더 이상 진행하지 않는다. `glass_hsv_samples.csv` 후속 분석(위 항목)은 여전히 미착수.
+
+---
+
+## 2026-09-09 (2) — 위 결론 정정: freeze 프록시가 이번엔 안 맞았음
+
+- 작업: 사용자 질문("baseline 말고 EfficientNetV2-S(실제 최종모델 구성인 unfreeze)로 해도 결과가 비슷할까")에 답하려고, 바로 위 실험(freeze 프록시)을 실제 최종모델 구성(unfreeze, lr=1e-4)으로 재확인.
+- 변경사항:
+  - `results/glass_plastic_augment/`에 `compare_augment_unfreeze.py`(재현 코드, 1차와 로직 동일·`freeze=False`+`lr=1e-4`만 다름), `run_unfreeze.log`, `compare_results_unfreeze.json`, 체크포인트 3개(`*_unfreeze.pt`) 추가.
+  - `conclusion.md`를 "1차 확인(freeze, 기록 보존)" / "2차 확인(unfreeze)" / "종합 결론" 구조로 재작성 — 결론이 삭제 없이 정정 과정 그대로 남도록 함.
+  - **핵심 결과(뒤집힘)**: 1차(freeze)에서 뚜렷했던 "white-glass recall 하락(−0.078~−0.087)"이 unfreeze에서는 재현되지 않음(세 설정 모두 0.9130으로 동일). plastic recall은 오히려 개선(특히 variant_B +0.0465). 다만 목표였던 wg↔plastic 상호 혼동 건수는 여전히 안 줄음(baseline 7 → A 9 → B 7).
+- 결정 근거:
+  - 1차 결론("증강이 white-glass를 해친다, 채택 안 함")을 삭제/덮어쓰기 하지 않고 "정정"으로 명시적으로 남긴 이유: 이 프로젝트 관례(버그·노이즈 발견 시 숨기지 않고 그대로 기록)를 따름 — 잘못된 결론이었음을 투명하게 보여주는 것 자체가 중요한 기록.
+  - freeze 프록시가 이번엔 안 맞았던 이유를 "freeze는 학습 가능 파라미터(FC층)가 거의 없어 증강이 늘린 입력 다양성을 흡수 못하고 방해만 됐지만, unfreeze는 backbone까지 적응할 수 있었다"로 해석해 기록 — `results/preprocessing_grid/conclusion.md`에서 검증된 "freeze 프록시 신뢰 가능"은 크롭/샘플러 같은 **데이터 파이프라인 선택**에 대한 것이었지, 이번처럼 **증강 강도 × backbone 학습 여부**가 상호작용하는 질문은 아니었다는 차이를 명시함 — freeze 프록시의 신뢰 범위에 대한 새로운 한계로 기록.
+  - "지금 채택하자"고 성급히 결론내지 않은 이유: 여전히 설정당 1회·3epoch 단발 실행이라(시드 반복 없음), variant_B의 plastic recall 개선(+0.0465)이 노이즈인지 실제 효과인지 이 실험만으로 확정할 수 없음 — 정직하게 "판단 보류"로 정리.
+- 다음 단계: variant_B(흰 반사 패치 시뮬레이션)가 가장 유망한 후보로 남음. 확신을 가지려면 최종 학습 레시피(스케줄러+조기종료, 9~15epoch) 그대로 baseline vs variant_B를 완전학습해 비교하는 후속 실험이 필요 — 진행 여부는 사용자 확인 후 결정.
+
+---
+
+## 2026-09-09 (3) — 완전학습으로 재확인: variant_B "개선"도 착시였음, 최종 기각
+
+- 작업: 사용자가 위 후속 실험(완전학습 재확인)을 진행하기로 결정 → baseline vs variant_B(가장 유망했던 흰 반사 패치 시뮬레이션)를 최종 채택 레시피(unfreeze, lr=1e-4, 스케줄러, 조기종료 patience=3, 최대 15epoch)로 완전학습해 비교.
+- 변경사항:
+  - `results/glass_plastic_augment/`에 `compare_full_baseline_vs_B.py`(재현 코드, `results/common.py` 재사용), `run_full.log`, `compare_results_full.json`, 체크포인트 2개(`baseline_full.pt`/`variant_B_full.pt`) 추가.
+  - `conclusion.md`에 "3차 확인(완전학습)" 섹션과 최종 "종합 결론"을 추가.
+  - **핵심 결과(2차 정정)**: baseline은 15epoch 전부 학습(조기종료 없음, val_macro_f1 0.9840), variant_B는 9epoch에서 조기종료(0.9745, baseline보다 −0.0095 낮음). 상호혼동 총합은 4→1로 줄었지만 방향별로 뜯어보면 **white-glass→plastic(사용자가 원래 물어본 방향)은 두 설정 다 1건으로 동일** — 줄어든 건 전부 plastic→white-glass(3→0) 방향이었고, 이마저 plastic을 더 잘 맞혀서가 아니라 plastic의 전체 오분류(4→5건)가 늘면서 그 오분류가 white-glass가 아닌 다른 클래스로 옮겨간 것이었다. white-glass도 전체 오분류가 3→6건으로 늘었다(recall 0.9739→0.9478).
+- 결정 근거:
+  - "상호혼동 4→1"이라는 표면적 숫자만 보고 개선이라 결론짓지 않고 wg→pl/pl→wg 방향을 분리해서 다시 확인한 이유: 이 프로젝트 관례(숫자를 그대로 믿지 않고 방향·구성을 항상 분해해서 확인 — 예: 2026-09-06 정제 효과 재검증, `NOISE_FINDINGS.md`)를 따름. 분해해보니 "혼동이 준 게 아니라 옮겨간 것"이라는 걸 확인했고, 이걸 숨기지 않고 "2차 정정"으로 명시.
+  - variant_B가 baseline보다 6epoch 일찍(9 vs 15) 조기종료됐다는 걸 그냥 "결과가 나쁘다"로 넘기지 않고, 같은 epoch(6)에서는 오히려 variant_B가 앞섰다(0.9745 vs 0.9693)는 것까지 확인해 "비교 자체가 완전히 공정하지 않다"는 한계를 함께 기록 — 정직하게 불확실성을 남김.
+  - val_macro_f1 차이(−0.0095)가 노이즈 기준선(±0.0046, `results/seed_repeat`)의 2배 수준이라 우연으로 보지 않기로 판단했지만, 각 설정 1회 실행(시드 반복 없음)이라는 한계도 동시에 명시.
+- 다음 단계: **white-glass/plastic 전용 빛반사 증강(A/B 모두) 최종 기각 — 이 방향의 추가 실험은 진행하지 않는다.** 3번의 독립 실험(freeze 프록시→unfreeze 프록시→unfreeze 완전학습) 전체에서 white-glass→plastic 오분류가 뚜렷이 줄어든 적이 한 번도 없었다는 게 유일하게 일관된 사실 — Grad-CAM·해상도 실험의 "정보 부족 문제" 결론이 세 번째로 재확인됨. `glass_hsv_samples.csv` 후속 분석(9/8 기록)은 여전히 미착수로 남음.
